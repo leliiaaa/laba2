@@ -1,0 +1,398 @@
+#include <iostream>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <future>
+#include <queue>
+#include <deque>
+#include <chrono>
+#include <cmath>
+#include <string>
+#include <utility>
+
+bool isPrime(long long n) {
+    if (n <= 1) return false;
+    if (n <= 3) return true;
+    if (n % 2 == 0 || n % 3 == 0) return false;
+    for (long long i = 5; i * i <= n; i += 6) {
+        if (n % i == 0 || n % (i + 2) == 0) return false;
+    }
+    return true;
+}
+
+long long getNthPrime(int n) {
+    if (n <= 0) return -1;
+    int count = 0;
+    long long candidate = 1;
+    while (count < n) {
+        ++candidate;
+        if (isPrime(candidate)) {
+            ++count;
+        }
+    }
+    return candidate;
+}
+
+namespace Task1_2_1 {
+    std::queue<int> dataQueue;
+    std::mutex mtx;
+    bool isInputFinished = false;
+
+    void DataPreparation() {
+        std::cout << "[DataPreparation] Vvedit tsili chysla (dlia zavershennia vvedit bukvy abo 'q'):\n";
+        int val;
+        while (std::cin >> val) {
+            std::lock_guard<std::mutex> lock(mtx);
+            dataQueue.push(val);
+        }
+        std::cin.clear();
+        std::string dummy;
+        std::cin >> dummy;
+
+        {
+            std::lock_guard<std::mutex> lock(mtx);
+            isInputFinished = true;
+        }
+        std::cout << "[DataPreparation] Vvedennia zaversheno.\n";
+    }
+
+    void DataProcessing() {
+        std::unique_lock<std::mutex> lk(mtx);
+        while (!isInputFinished) {
+            lk.unlock();
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            lk.lock();
+        }
+
+        std::cout << "[DataProcessing] Prosti chysla z cherhy: ";
+        while (!dataQueue.empty()) {
+            int num = dataQueue.front();
+            dataQueue.pop();
+            if (isPrime(num)) {
+                std::cout << num << " ";
+            }
+        }
+        std::cout << "\n";
+    }
+
+    void run() {
+        isInputFinished = false;
+        while (!dataQueue.empty()) dataQueue.pop();
+
+        std::thread t1(DataPreparation);
+        t1.detach();
+
+        std::thread t2(DataProcessing);
+        t2.join();
+    }
+}
+
+namespace Task1_2_2 {
+    std::mutex mtx;
+    std::condition_variable cv;
+    int i = 0;
+
+    void Waits(int id) {
+        std::unique_lock<std::mutex> lock(mtx);
+        std::cout << "[Potik " << id << "] Vkhodyt u stan ochikuvannia.\n";
+        cv.wait(lock, [] { return i == 1; });
+        std::cout << "[Potik " << id << "] Ochikuvannia zavershene (i = " << i << ").\n";
+    }
+
+    void Awake() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::cout << "[Awake] Pershe spovishchennia (i = " << i << ") cherez notify_all()...\n";
+        cv.notify_all();
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        {
+            std::lock_guard<std::mutex> lock(mtx);
+            i = 1;
+        }
+        std::cout << "[Awake] Zminnu i vstanovleno v 1. Povtorne spovishchennia cherez notify_all()...\n";
+        cv.notify_all();
+    }
+
+    void run() {
+        i = 0;
+        std::thread w1(Waits, 1);
+        std::thread w2(Waits, 2);
+        std::thread w3(Waits, 3);
+        std::thread a(Awake);
+
+        a.join();
+        w1.join();
+        w2.join();
+        w3.join();
+    }
+}
+
+namespace Task1_2_3 {
+    std::mutex mtx;
+    std::condition_variable cv;
+    int i = 0;
+
+    void ThreadWorker(int id) {
+        std::unique_lock<std::mutex> lock(mtx);
+        cv.wait(lock, [] { return i == 1; });
+        std::cout << "Povidomlennia z potoku " << id << "\n";
+    }
+
+    void Notify() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        {
+            std::lock_guard<std::mutex> lock(mtx);
+            i = 1;
+        }
+        std::cout << "[Notify] Probudzhennia odnoho potoku cherez notify_one()...\n";
+        cv.notify_one();
+    }
+
+    void run() {
+        i = 0;
+        std::thread t1(ThreadWorker, 1);
+        std::thread t2(ThreadWorker, 2);
+        std::thread t3(ThreadWorker, 3);
+        std::thread notif(Notify);
+
+        notif.join();
+        t1.detach();
+        t2.detach();
+        t3.detach();
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+}
+
+namespace Task1_2_4 {
+    std::queue<int> dataQueue;
+    std::mutex mtx;
+    std::condition_variable cv;
+
+    void DataPreparation() {
+        std::cout << "[DataPreparation] Vvedit chysla (bud-iaka bukva dlia zavershennia):\n";
+        int val;
+        while (std::cin >> val) {
+            std::lock_guard<std::mutex> lock(mtx);
+            dataQueue.push(val);
+        }
+        std::cin.clear();
+        std::string dummy;
+        std::cin >> dummy;
+
+        std::cout << "[DataPreparation] Zaversheno. Spovishchaiemo obrobnyk...\n";
+        cv.notify_one();
+    }
+
+    void DataProcessing() {
+        std::unique_lock<std::mutex> lock(mtx);
+        cv.wait(lock, [] { return !dataQueue.empty(); });
+
+        std::cout << "[DataProcessing] Prosti chysla z cherhy: ";
+        while (!dataQueue.empty()) {
+            int num = dataQueue.front();
+            dataQueue.pop();
+            if (isPrime(num)) {
+                std::cout << num << " ";
+            }
+        }
+        std::cout << "\n";
+    }
+
+    void run() {
+        while (!dataQueue.empty()) dataQueue.pop();
+
+        std::thread t1(DataPreparation);
+        t1.detach();
+
+        std::thread t2(DataProcessing);
+        t2.join();
+    }
+}
+
+namespace Task1_2_5 {
+    void executeWithPolicy(std::launch policy, const std::string& policyName, int n, int choice) {
+        std::cout << "\n--- Rezhym: " << policyName << " ---\n";
+        auto start = std::chrono::high_resolution_clock::now();
+
+        std::future<long long> primeFuture = std::async(policy, getNthPrime, n);
+
+        std::cout << "Vykonuietsia matematychna diia nad n = " << n << ":\n";
+        if (choice == 1) {
+            std::cout << "sqrt(" << n << ") = " << std::sqrt(n) << "\n";
+        } else if (choice == 2) {
+            std::cout << "sin(" << n << ") = " << std::sin(n) << "\n";
+        } else {
+            std::cout << "ln(" << n << ") = " << (n > 0 ? std::log(n) : 0.0) << "\n";
+        }
+
+        std::cout << "Otrymannia rezultatu obchyslennia prostoho chysla...\n";
+        long long prime = primeFuture.get();
+        auto end = std::chrono::high_resolution_clock::now();
+
+        std::cout << n << "-te proste chyslo: " << prime << "\n";
+        std::cout << "Chas vykonannia: "
+                  << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+                  << " ms\n";
+    }
+
+    void run() {
+        int n;
+        std::cout << "Vvedit nomer prostoho chysla n: ";
+        std::cin >> n;
+
+        std::cout << "Oberit funktsiiu dlia obchyslennia nad " << n << ":\n"
+                  << "1 - Korin kvadratnyi (sqrt)\n"
+                  << "2 - Synus (sin)\n"
+                  << "3 - Naturalnyi loharyfm (ln)\n"
+                  << "Vash vybir: ";
+        int choice;
+        std::cin >> choice;
+
+        executeWithPolicy(std::launch::deferred, "std::launch::deferred", n, choice);
+        executeWithPolicy(std::launch::async, "std::launch::async", n, choice);
+    }
+}
+
+namespace Task1_2_6 {
+    std::deque<std::packaged_task<long long()>> taskDeque;
+    std::deque<int> nDeque;
+    std::mutex dequeMtx;
+    std::condition_variable dequeCv;
+    bool stopSignal = false;
+
+    void Worker() {
+        while (true) {
+            std::packaged_task<long long()> task;
+            int n = 0;
+            {
+                std::unique_lock<std::mutex> lock(dequeMtx);
+                dequeCv.wait(lock, [] { return !taskDeque.empty() || stopSignal; });
+
+                if (stopSignal && taskDeque.empty()) {
+                    break;
+                }
+
+                task = std::move(taskDeque.front());
+                taskDeque.pop_front();
+                n = nDeque.front();
+                nDeque.pop_front();
+            }
+
+            task();
+            std::cout << "[Worker] Rezultat dlia n = " << n << ": " << task.get_future().get() << "\n";
+        }
+    }
+
+    void run() {
+        stopSignal = false;
+        std::thread workerThread(Worker);
+
+        std::cout << "Vvodit n dlia obchyslennia prostoho chysla (vvedit 'stop' dlia zavershennia):\n";
+        std::string input;
+        while (std::cin >> input && input != "stop") {
+            try {
+                int n = std::stoi(input);
+                std::packaged_task<long long()> task([n]() { return getNthPrime(n); });
+
+                {
+                    std::lock_guard<std::mutex> lock(dequeMtx);
+                    taskDeque.push_back(std::move(task));
+                    nDeque.push_back(n);
+                }
+                dequeCv.notify_one();
+            } catch (...) {
+                std::cout << "Nekorektnyi vvid. Sprobujte shche raz abo vvedit 'stop'.\n";
+            }
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(dequeMtx);
+            stopSignal = true;
+        }
+        dequeCv.notify_all();
+
+        workerThread.join();
+        std::cout << "Usi zavdannia opratsovano. Robotu zaversheno.\n";
+    }
+}
+
+namespace Task1_2_7 {
+    void FirstThread(int n, std::promise<long long> p1, std::promise<bool> pSignal, std::promise<long long> p2) {
+        long long nth = getNthPrime(n);
+        p1.set_value(nth);
+
+        pSignal.set_value(true);
+
+        long long nTimes10th = getNthPrime(n * 10);
+        p2.set_value(nTimes10th);
+    }
+
+    void SecondThread(int n, std::future<bool> futSignal) {
+        if (futSignal.get()) {
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+            std::cout << "\n[Potik 2] Kvadratnyi korin vid " << n << " = " << std::sqrt(n) << "\n";
+        }
+    }
+
+    void run() {
+        int n;
+        std::cout << "Vvedit nomer prostoho chysla n: ";
+        std::cin >> n;
+
+        std::promise<long long> p1;
+        std::promise<bool> pSignal;
+        std::promise<long long> p2;
+
+        std::future<long long> f1 = p1.get_future();
+        std::future<bool> fSignal = pSignal.get_future();
+        std::future<long long> f2 = p2.get_future();
+
+        std::thread t2(SecondThread, n, std::move(fSignal));
+        std::thread t1(FirstThread, n, std::move(p1), std::move(pSignal), std::move(p2));
+
+        std::cout << "[Holovnyi potik] " << n << "-te proste chyslo: " << f1.get() << "\n";
+        std::cout << "[Holovnyi potik] (" << n << "*10)-te proste chyslo: " << f2.get() << "\n";
+
+        t1.join();
+        t2.join();
+    }
+}
+
+
+int main() {
+    int choice = 0;
+    while (true) {
+        std::cout << "\n================ LABORATORNA ROBOTA №2 ================\n"
+                  << "1 - Zavdannia 1.2.1 (Synkhronizatsiia praportsem ta sleep_for)\n"
+                  << "2 - Zavdannia 1.2.2 (condition_variable: notify_all)\n"
+                  << "3 - Zavdannia 1.2.3 (condition_variable: notify_one)\n"
+                  << "4 - Zavdannia 1.2.4 (condition_variable zamist praportsia)\n"
+                  << "5 - Zavdannia 1.2.5 (async: deferred vs async)\n"
+                  << "6 - Zavdannia 1.2.6 (packaged_task ta deky)\n"
+                  << "7 - Zavdannia 1.2.7 (promise/future bez hlobalnykh danykh)\n"
+                  << "0 - Vykhid\n"
+                  << "Oberit punkt meniu: ";
+
+        if (!(std::cin >> choice)) {
+            std::cin.clear();
+            std::string s;
+            std::cin >> s;
+            continue;
+        }
+
+        if (choice == 0) break;
+
+        switch (choice) {
+            case 1: Task1_2_1::run(); break;
+            case 2: Task1_2_2::run(); break;
+            case 3: Task1_2_3::run(); break;
+            case 4: Task1_2_4::run(); break;
+            case 5: Task1_2_5::run(); break;
+            case 6: Task1_2_6::run(); break;
+            case 7: Task1_2_7::run(); break;
+            default: std::cout << "Nevirnyi vybir. Sprobujte shche raz.\n";
+        }
+    }
+
+    return 0;
+}
